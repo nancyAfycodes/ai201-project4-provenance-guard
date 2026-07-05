@@ -240,6 +240,237 @@ APPEAL FLOW
 
 ---
 
-## Milestone 2
+## Milestone 2: Spec Before Code
 
-*(To be added before Milestone 2 work begins.)*
+### 1. Detection Signals
+
+Two signals, each independently scoring the same submitted text on a
+`0.0–1.0` scale representing `P(AI)` — probability the text is
+AI-generated (not a binary flag; see rationale in Milestone 1 §2).
+
+| Signal | Measures | Output |
+|---|---|---|
+| **Signal 1 — LLM judgment** (Groq `llama-3.3-70b-versatile`) | Holistic semantic/stylistic judgment of AI-likelihood (hedging, generic phrasing, structural predictability) | `llm_score` ∈ [0.0, 1.0] |
+| **Signal 2 — Stylometric heuristics** (pure Python) | Statistical fingerprints: sentence length variance, type-token ratio, punctuation burstiness, avg. word length, sentence-opener repetition | `stylo_score` ∈ [0.0, 1.0] |
+
+**Combination — Agreement-Band Approach** (chosen over flat weighted
+average; see Milestone 1 Decision Log #3):
+
+```
+spread = |llm_score - stylo_score|
+
+if spread < 0.2:
+    combined_score = (llm_score + stylo_score) / 2   # signals agree — trust the midpoint
+else:
+    combined_score = 0.5 + (midpoint - 0.5) * (1 - spread)
+    # signals disagree — pull the result toward 0.5 (uncertain),
+    # proportional to how much they disagree
+```
+
+This means: agreeing signals produce a confident, extreme score;
+disagreeing signals get automatically dampened toward uncertainty rather
+than blindly averaged.
+
+### 2. Uncertainty Representation
+
+- `combined_score` is a **continuous value**, not a binary label. A score
+  of `0.6` means: "weighted analysis places this text closer to the
+  midpoint than to either extreme — genuine ambiguity, not a confident
+  call in either direction." It is *not* "60% of the text is AI" — it's a
+  single verdict-level probability estimate for the whole submission.
+- **Calibration approach:** raw signal outputs (Groq's stated
+  probability + the stylometric composite score) are used directly as
+  inputs to the agreement-band formula above, rather than passed through
+  a separate calibration model. This project does not implement formal
+  statistical calibration (e.g. Platt scaling) — that would require a
+  labeled validation dataset, which is out of scope. This is documented
+  as a known limitation, not hidden.
+- **Testing whether scores are meaningful:** verify with a small labeled
+  test set (a handful of known-AI outputs, a handful of known-human
+  excerpts, and a few ambiguous/edited samples) and confirm: (a) clearly
+  AI text scores consistently high, (b) clearly human text scores
+  consistently low, (c) ambiguous/edited text lands in the uncertain
+  band rather than at either extreme. Documented in README with example
+  inputs/outputs.
+- **Thresholds:**
+
+| Score range | Result | Label variant | Direction (if uncertain) |
+|---|---|---|---|
+| ≥ 0.80 | `ai` | High-confidence AI | — |
+| 0.50 < score < 0.80 | `uncertain` | Uncertain | "AI-generated" |
+| = 0.50 exactly | `uncertain` | Uncertain | "no clear lean" |
+| 0.20 < score < 0.50 | `uncertain` | Uncertain | "human-written" |
+| ≤ 0.20 | `human` | High-confidence human | — |
+
+### 3. Transparency Label Design
+
+Exact text for all three variants (`{score}` and `{direction}` are
+runtime-filled):
+
+| Variant | Exact text |
+|---|---|
+| **High-confidence AI** | "This content is likely **AI-generated**. Our analysis found strong, consistent signals of AI authorship (confidence: **{score}**)." |
+| **High-confidence human** | "This content is likely **human-written**. Our analysis found strong, consistent signals of human authorship (confidence: **{score}**)." |
+| **Uncertain** | "We're **not confident** in this content's origin. Our signals give mixed results, leaning slightly toward **{direction}** (confidence: **{score}**). Treat this result with caution." |
+
+`{direction}` ∈ {"AI-generated", "human-written", "no clear lean"} per the
+threshold table above.
+
+### 4. Appeals Workflow
+
+- **Who can appeal:** the original creator/submitter of the content (identified
+  via `author_id` captured at submission time, or the `content_id` alone
+  if no author system is in place — appeals are content-scoped, not
+  identity-gated, for this project's scope).
+- **What they provide:** `content_id` + free-text `reasoning` explaining
+  why they believe the classification is wrong.
+- **What the system does on receipt:**
+  1. Looks up the original decision by `content_id` (must exist).
+  2. Flips content status: `classified` → `under_review`.
+  3. Appends a new audit log entry: appeal timestamp, reasoning text,
+     status change, linked to the original decision's log entry (shared
+     `content_id`).
+  4. Does **not** trigger automated re-classification (explicitly out of
+     scope per spec) — this is a queue for human review.
+- **What a human reviewer would see in the appeal queue:** the original
+  submission (raw text), the original signals + combined score + label
+  shown, the creator's appeal reasoning, and the current status
+  (`under_review`). This project does not build a reviewer UI — the
+  `GET /log` endpoint filtered/read manually serves as the "queue" for
+  this project's scope, with a note in the README on how a real reviewer
+  UI would consume the same data.
+
+### 5. Anticipated Edge Cases
+
+1. **Very short submissions** (e.g. a haiku or 3-line poem). The
+   stylometric signal needs enough text to compute meaningful
+   sentence-length variance and vocabulary diversity; under roughly 50
+   words these stats are noisy and can swing to a misleadingly extreme
+   score in either direction. Mitigation: flag short submissions in the
+   response (not blocking) so the label can note reduced reliability.
+2. **Human writing with deliberate repetition and simple vocabulary**
+   (a villanelle, a children's book manuscript, a chant-like protest
+   poem). Low vocabulary diversity and repeated structure are stylometric
+   hallmarks the heuristic associates with AI, but here they're an
+   intentional literary device, not evidence of machine authorship. This
+   is a known blind spot of Signal 2 (see Milestone 1 §2) that the
+   agreement-band combination only partially offsets — if the LLM signal
+   independently recognizes the human craftsmanship, disagreement pulls
+   the result toward "uncertain" rather than a false "high-confidence AI."
+
+---
+
+## Architecture
+
+*(Diagram and narrative from Milestone 1 — carried forward as the
+reference for AI-assisted code generation in Milestones 3–5.)*
+
+**Submission flow, briefly:** raw text passes through the rate limiter,
+then both detection signals independently, then the confidence scoring
+module (agreement-band combine), then the label generator, then the audit
+logger, before the structured response is returned to the caller.
+
+**Appeal flow, briefly:** an appeal looks up the original decision by
+`content_id`, flips status to `under_review`, and appends a linked audit
+log entry — no automated re-classification occurs.
+
+```
+SUBMISSION FLOW
+───────────────
+                 raw text
+   POST /submit ─────────────► [Rate Limiter]
+                                     │ (pass)
+                                     ▼
+                              [Flask API Layer]
+                                     │ raw text
+                       ┌─────────────┴─────────────┐
+                       ▼                            ▼
+              [Signal 1: Groq LLM]         [Signal 2: Stylometric]
+                 llm_score (0-1)              stylo_score (0-1)
+                       │                            │
+                       └─────────────┬──────────────┘
+                                     ▼
+                        [Confidence Scoring Module]
+                      (agreement-band combine, see below)
+                                     │ combined P(AI) score
+                                     ▼
+                          [Label Generator]
+                    (maps score → one of 3 label variants
+                     + dynamic direction text)
+                                     │ label text + score
+                                     ▼
+                           [Audit Logger] ──► (SQLite/JSON store)
+                                     │
+                                     ▼
+                        JSON Response to caller
+              (content_id, result, score, label, signals)
+
+
+APPEAL FLOW
+───────────
+                content_id + reasoning
+  POST /appeal ─────────────────────► [Flask API Layer]
+                                             │
+                                             ▼
+                                  [Lookup original decision]
+                                             │ found
+                                             ▼
+                                  [Status Update: → under_review]
+                                             │
+                                             ▼
+                                     [Audit Logger] ──► (append entry,
+                                                          linked to original)
+                                             │
+                                             ▼
+                                  JSON Response
+                        (content_id, status: under_review, confirmed)
+```
+
+---
+
+## AI Tool Plan
+
+**Milestone 3 — Submission endpoint + first signal**
+- *Spec sections provided to AI tool:* Detection Signals (§1) + Architecture
+  diagram.
+- *What I'll ask for:* a Flask app skeleton (routing, request validation)
+  plus the Signal 1 function (Groq API call wrapper that sends text and
+  parses a `llm_score` from the response).
+- *Verification:* test the Signal 1 function directly with a few known
+  inputs (a clearly AI-generated paragraph, a clearly human excerpt)
+  before wiring it into the `/submit` endpoint — confirm scores land in
+  sane ranges and the function handles Groq API errors/timeouts
+  gracefully.
+
+**Milestone 4 — Second signal + confidence scoring**
+- *Spec sections provided:* Detection Signals (§1) + Uncertainty
+  Representation (§2) + Architecture diagram.
+- *What I'll ask for:* the stylometric signal function (pure Python, no
+  external libraries) and the confidence scoring module implementing the
+  agreement-band formula.
+- *Verification:* run both signals + combination on a small labeled test
+  set (clearly AI, clearly human, ambiguous/edited samples) and confirm
+  scores vary meaningfully in the expected direction, and that
+  disagreement between signals visibly pulls the combined score toward
+  0.5 rather than averaging blindly.
+
+**Milestone 5 — Production layer**
+- *Spec sections provided:* Transparency Label Design (§3) + Appeals
+  Workflow (§4) + Architecture diagram.
+- *What I'll ask for:* the label generation logic (mapping combined score
+  → one of the 3 label variants + dynamic direction/score text) and the
+  `/appeal` endpoint (lookup, status update, linked audit log entry).
+- *Verification:* construct test inputs that deliberately land in each of
+  the 5 threshold bands to confirm all three label variants (and both
+  uncertain directions + the exact-0.5 edge case) are reachable and
+  render the exact documented text; submit a test appeal and confirm
+  status flips to `under_review` and a linked log entry appears in
+  `GET /log`.
+
+---
+
+## Stretch Features
+
+*(To be updated here before starting each stretch feature, per project
+instructions — planned stretch features: ensemble detection, provenance
+certificate, analytics dashboard, multi-modal support.)*
