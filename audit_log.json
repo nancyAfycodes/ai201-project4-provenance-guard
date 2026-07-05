@@ -1,0 +1,15 @@
+[
+  {
+    "event_type": "submission",
+    "content_id": "1194af73-0597-42d0-882e-a68b97e3a5ac",
+    "creator_id": "user123",
+    "timestamp": "2026-07-05T18:42:10.410685+00:00",
+    "text": "In conclusion, it is important to note the implications of this technology.",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.7,
+    "signal_1_reasoning": "The text's formal tone and lack of personal touch suggest AI involvement.",
+    "signal_1_error": null,
+    "confidence_score": 0.7,
+    "status": "classified"
+  }
+]
