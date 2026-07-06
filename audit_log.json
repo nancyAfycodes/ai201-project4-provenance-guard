@@ -172,6 +172,17 @@
     "spread": 0.1875,
     "signals_agree": true,
     "confidence_score": 0.50625,
-    "status": "classified"
+    "status": "under_review",
+    "appeal_reasoning": "I wrote this myself. I am a native English speaker and my writing style may appear more formal in certain situations.",
+    "appeal_timestamp": "2026-07-06T12:09:07.842061+00:00"
+  },
+  {
+    "event_type": "appeal",
+    "content_id": "8674870c-21ee-45ed-9ecd-f24ba32a1719",
+    "timestamp": "2026-07-06T12:09:07.842061+00:00",
+    "appeal_reasoning": "I wrote this myself. I am a non-native English speaker and my writing style may appear more formal than typical.",
+    "status": "under_review",
+    "original_attribution_result": "uncertain",
+    "original_confidence_score": 0.50625
   }
 ]
