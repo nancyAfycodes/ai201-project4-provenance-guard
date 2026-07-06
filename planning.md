@@ -472,6 +472,60 @@ APPEAL FLOW
 
 ## Stretch Features
 
-*(To be updated here before starting each stretch feature, per project
-instructions — planned stretch features: ensemble detection, provenance
-certificate, analytics dashboard, multi-modal support.)*
+### Stretch 1: Ensemble Detection (design — pre-implementation)
+
+**Goal:** incorporate 3+ detection signals with a documented weighting or
+voting approach, per the stretch feature requirement.
+
+**New Signal 3 — Punctuation & structural formatting patterns** (pure
+Python, no external libraries):
+- *What it measures:* em-dash/en-dash usage rate, paragraph-length
+  uniformity, list/bullet formatting artifacts, and density of
+  transitional connector words beyond Signal 2's hedge-phrase list
+  (e.g. "however," "consequently," "additionally" used as sentence
+  openers).
+- *Why independent of Signal 2:* Signal 2 already covers sentence-length
+  variance, vocabulary diversity, and a fixed hedge-phrase list.
+  Signal 3 targets a genuinely different axis — punctuation/formatting
+  *habits* rather than sentence-level statistics or vocabulary — so a
+  text could score differently on this axis even with identical
+  vocabulary diversity or sentence variance.
+- *Blind spot:* like Signal 2, sensitive to short texts (not enough
+  punctuation/structure to sample); also sensitive to genre — some human
+  writing genres (technical docs, legal writing) legitimately use heavy
+  connector-word density and uniform structure.
+
+**Combination — Weighted Voting** (extends, rather than replaces, the
+Milestone 1 agreement-band approach — pairwise spread doesn't generalize
+cleanly to 3+ inputs, so this uses variance across all signals instead):
+
+```
+weights = { llm: 0.5, stylometric: 0.3, structural: 0.2 }
+# Weights reflect empirical trust established in Milestone 4 testing:
+# the LLM signal showed the clearest directional accuracy; stylometric
+# was reweighted once already after a calibration finding; structural
+# is the newest/least-tested signal, so it gets the smallest voice.
+
+weighted_score = sum(score_i * weight_i for each signal i)
+
+variance = population variance of the 3 raw signal scores
+if variance is high (signals spread out):
+    combined_score = dampened toward 0.5, proportional to variance
+    (same philosophy as the pairwise agreement-band: broad disagreement
+    across signals should reduce confidence, not just average through it)
+else:
+    combined_score = weighted_score
+```
+
+This is implemented as a separate `combine_ensemble_scores()` function
+(in a new `ensemble_scoring.py`) rather than modifying the existing
+Milestone 4 `confidence_scoring.py`, so the original 2-signal pairwise
+agreement-band approach — already built, tested, and documented as the
+core project requirement — remains intact and independently inspectable.
+`app.py` is updated to call the ensemble path as the live pipeline once
+this stretch feature is complete.
+
+**Verification plan:** run the same 4 test cases from Milestone 4 through
+the 3-signal ensemble and confirm scores still vary meaningfully and
+directionally correctly; document any new calibration findings the same
+way Milestone 4's findings were documented (honestly, not hidden).
