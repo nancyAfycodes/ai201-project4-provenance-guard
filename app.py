@@ -17,7 +17,9 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
 from audit_log import get_log, log_entry
+from confidence_scoring import combine_scores, determine_attribution_result, determine_direction
 from signals.llm_signal import get_llm_score
+from signals.stylometric_signal import get_stylometric_score
 
 load_dotenv()
 
@@ -55,21 +57,23 @@ def submit():
     signal_1_result = get_llm_score(text)
     llm_score = signal_1_result["llm_score"]
 
-    # Milestone 3 placeholder logic — real agreement-band combination
-    # (using Signal 2 as well) arrives in Milestone 4. For now, signal 1's
-    # score stands in directly as the confidence score, and the
-    # attribution result is a simple threshold on it.
-    placeholder_confidence_score = llm_score
-    if llm_score >= 0.8:
-        attribution_result = "ai"
-    elif llm_score <= 0.2:
-        attribution_result = "human"
-    else:
-        attribution_result = "uncertain"
+    # --- Signal 2: Stylometric heuristics ---
+    signal_2_result = get_stylometric_score(text)
+    stylo_score = signal_2_result["stylo_score"]
 
+    # --- Confidence scoring: agreement-band combination (planning.md M1/M2) ---
+    scoring_result = combine_scores(llm_score, stylo_score)
+    combined_score = scoring_result["combined_score"]
+    attribution_result = determine_attribution_result(combined_score)
+
+    # Label text finalized in Milestone 5 — for now, surface enough
+    # structured info (result, score, direction) to verify scoring logic
+    # end-to-end without committing to exact label wording yet.
+    direction = determine_direction(combined_score) if attribution_result == "uncertain" else None
     placeholder_label = (
-        f"[Placeholder label — real label generation arrives in Milestone 5] "
-        f"attribution={attribution_result}, confidence={placeholder_confidence_score:.2f}"
+        f"[Placeholder label — exact wording finalized in Milestone 5] "
+        f"attribution={attribution_result}, confidence={combined_score:.2f}"
+        + (f", direction={direction}" if direction else "")
     )
 
     # --- Audit log entry ---
@@ -83,17 +87,23 @@ def submit():
         "signal_1_score": llm_score,
         "signal_1_reasoning": signal_1_result["reasoning"],
         "signal_1_error": signal_1_result["error"],
-        "confidence_score": placeholder_confidence_score,
+        "signal_2_score": stylo_score,
+        "signal_2_metrics": signal_2_result["metrics"],
+        "signal_2_reliable": signal_2_result["reliable"],
+        "spread": scoring_result["spread"],
+        "signals_agree": scoring_result["signals_agree"],
+        "confidence_score": combined_score,
         "status": "classified",
     })
 
     return jsonify({
         "content_id": content_id,
         "attribution_result": attribution_result,
-        "confidence_score": placeholder_confidence_score,
+        "confidence_score": combined_score,
         "label_text": placeholder_label,
         "signals": {
             "llm_score": llm_score,
+            "stylometric_score": stylo_score,
         },
         "timestamp": timestamp,
     }), 201
