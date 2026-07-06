@@ -23,6 +23,30 @@ Thresholds (planning.md Milestone 2 §2):
     0.20 < score < 0.80      -> "uncertain"
     score <= 0.20            -> "human"
     (score == 0.50 exactly   -> "uncertain", direction = "no clear lean")
+
+CALIBRATION FINDING (Milestone 4 testing, documented in README):
+Testing against the milestone's 4 sample inputs showed that a spread as
+"small" as 0.25 between two SAME-DIRECTION signals (e.g. llm=0.80,
+stylo=0.55 — both lean AI, just with different intensity) is still
+dampened toward uncertain by this rule, same as it would dampen a
+genuinely opposite-direction disagreement (e.g. 0.90 vs 0.20). This means
+even a fairly clear-cut AI-generated test passage landed as "uncertain"
+(0.632) rather than "high-confidence AI", despite one signal alone
+already exceeding the 0.80 threshold on its own.
+
+This was a deliberate choice, not a bug: the agreement-band's job is to
+never let two only-loosely-corroborating signals produce a falsely
+confident verdict, and same-direction-but-different-magnitude signals are
+exactly the case where a plain average would have looked convincingly
+confident without actually deserving to be. The system is intentionally
+conservative — it would rather say "uncertain" than be confidently wrong,
+which is the core philosophy behind representing genuine uncertainty
+(see planning.md Milestone 2 §2 and Goals). An alternative design could
+distinguish same-direction disagreement from opposite-direction
+disagreement and dampen only the latter; this was considered and
+deliberately not implemented, to keep the confidence rule simple,
+auditable, and consistently conservative rather than adding another
+tunable branch.
 """
 
 AGREEMENT_THRESHOLD = 0.2
