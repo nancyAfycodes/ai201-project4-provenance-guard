@@ -583,5 +583,115 @@ fixed badge text:
 > "✓ Verified Human Creator — this creator has completed Provenance
 > Guard's writing-sample verification process."
 
-This keeps the label contract intact while still surfacing the
-credential wherever content is shown.
+**Status: ✅ Complete.** Real-world testing surfaced an honest
+calibration finding: a genuine attempt with the developer's own writing
+missed the 0.45 average threshold by only 0.012 (0.462 vs 0.45), driven
+entirely by Signal 1 scoring 2 of 3 samples "AI-leaning" (0.70) — the
+same known false-positive pattern documented in Milestone 4 — despite
+the consistency check passing easily (variance 0.0037 vs 0.03 threshold,
+confirming a genuinely stable personal writing voice). Decision: kept
+the 0.45 threshold as-is rather than loosening it, consistent with the
+intentional-conservatism philosophy established in Milestone 4 — see
+README Stretch 2 section for full writeup and the future-work notes this
+implies (better-calibrated Signal 1, majority-vote check, or human-review
+fallback for near-misses).
+
+### Stretch 3: Analytics Dashboard (design — pre-implementation)
+
+**Goal:** a simple view showing detection patterns, appeal rates, and one
+additional metric — chosen: **signal agreement rate**.
+
+**Format:** both a JSON endpoint (`GET /analytics`) for programmatic
+access/grading, and a simple rendered HTML view (`GET /dashboard`) for
+human readability, both backed by the same computation function so
+there's a single source of truth.
+
+**Metrics computed** (`analytics.py`, reading directly from the existing
+audit log — no new storage):
+
+1. **Detection patterns** — counts and percentages of `attribution_result`
+   across all `submission`-type log entries (`ai` / `human` / `uncertain`).
+2. **Appeal rate** — `count(appeal entries) / count(submissions)`, plus
+   the raw appeal count.
+3. **Signal agreement rate** (the chosen additional metric) —
+   `count(submissions where signals_agree == true) / count(submissions
+   where the signals_agree field is present)`. Note: Milestone 3's
+   earliest audit log entries (single-signal placeholder, before
+   Milestone 4) don't have a `signals_agree` field at all — these are
+   excluded from this specific metric's denominator (documented in code)
+   rather than silently miscounted as disagreements, since "field
+   absent" and "signals disagreed" are different things.
+
+**Why these three together tell a coherent story:** detection patterns
+show *what* the system is deciding; appeal rate shows how often creators
+push back on those decisions; signal agreement rate shows *how often the
+system's own internal confidence mechanism is confident vs. uncertain*
+— connecting directly back to the agreement-band/ensemble design
+philosophy from Milestones 1 and 4, rather than being an arbitrary
+unrelated metric.
+
+**Endpoints:**
+```
+GET /analytics  -> JSON: { total_submissions, detection_patterns: {...},
+                           appeal_stats: {...}, signal_agreement: {...},
+                           generated_at }
+GET /dashboard  -> HTML page rendering the same data, human-readable
+```
+
+### Stretch 4: Multi-modal Support (design — pre-implementation)
+
+**Goal:** extend the pipeline to handle a second content type — chosen:
+**structured metadata** (e.g. JSON product listings, file metadata) —
+alongside prose.
+
+**Why this is a genuinely different problem, not just "run the same
+pipeline on JSON":** the existing 3 signals (LLM judgment, stylometric
+heuristics, structural/formatting patterns) are all fundamentally
+*prose-shaped* — they assume sentences, paragraphs, and running text.
+Structured metadata doesn't have that shape uniformly, but it often
+*contains* prose (e.g. a product `"description"` field) alongside
+non-prose structure (field names, tag arrays, formatting conventions)
+that has its own distinct AI-authorship tells.
+
+**Approach — hybrid analysis:**
+1. **Extract embedded text** — pull string values from likely
+   free-text fields (`description`, `title`, `notes`, `summary`, or any
+   string value if no such fields exist) and concatenate them. If
+   non-trivial text is found, run the **existing 3-signal ensemble
+   pipeline unchanged** on it — this is exactly the kind of reuse that
+   makes multi-modal support tractable rather than a rewrite.
+2. **New Signal — structural metadata analysis**
+   (`signals/metadata_signal.py`), 3 heuristics specific to structured
+   data, not prose:
+   - *Field completeness ratio*: how many fields from a reference set of
+     "typical" listing fields (title, description, price, category,
+     tags, sku, brand, in_stock, rating, images) are present. Unusually
+     complete listings (every optional field filled) can indicate
+     templated/generated content. **Documented blind spot**: a
+     conscientious human seller filling out every field would also score
+     high here — this heuristic is weak and explicitly flagged as such.
+   - *Tag/keyword stuffing ratio*: number of tags/keywords relative to
+     description length. AI-generated SEO listings often over-populate
+     tag arrays disproportionately to actual content.
+   - *Value formatting uniformity*: whether string field values follow
+     identically consistent casing/formatting (e.g. 100% Title Case
+     across every field) — humans are typically more inconsistent.
+3. **Combine**: if embedded text was found and is non-trivial, final
+   score = `0.65 × text_ensemble_score + 0.35 × structure_score`
+   (text-derived signals given more weight, since they reuse the
+   already-tested pipeline; the new structural-metadata heuristics are
+   the least-tested part of the whole system). If no usable text is
+   found (pure structured data with no free-text fields), the score is
+   `structure_score` alone.
+
+**API change:** `POST /submit` gains an optional `content_type` field
+(`"prose"` default, or `"metadata"`). When `"metadata"`, the `text` field
+is expected to contain a JSON string rather than prose; the response and
+audit log gain a `content_type` field and, for metadata submissions, a
+`structure_metrics` breakdown alongside the normal signal scores.
+
+**Verification plan:** test against a synthetic AI-style over-complete,
+keyword-stuffed product listing (expect high structure_score) vs. a
+sparse, inconsistent, human-style listing (expect low structure_score),
+and confirm the existing text pipeline still runs correctly against
+description fields extracted from both.
