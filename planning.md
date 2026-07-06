@@ -139,7 +139,8 @@ POST /submit
   }
 
 POST /appeal
-  body: { "content_id": string, "reasoning": string }
+  body: { "content_id": string, "creator_reasoning": string }
+  # (field named creator_reasoning, not reasoning, per Milestone 5 spec)
   returns: {
     "content_id": string,
     "status": "under_review",
