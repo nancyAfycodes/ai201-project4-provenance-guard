@@ -3,10 +3,10 @@ app.py
 
 Provenance Guard — Flask API.
 
-Milestone 3 scope: POST /submit (wired to Signal 1 only, placeholder
-confidence score + label) and GET /log. Signal 2, real confidence
-scoring, real label generation, rate limiting, and /appeal are added in
-later milestones per planning.md's AI Tool Plan.
+Full production scope (Milestone 5): POST /submit (both signals, real
+agreement-band confidence scoring, real transparency label), POST
+/appeal (status update + linked audit log entry), GET /log, and rate
+limiting on /submit via Flask-Limiter.
 """
 
 import os
@@ -15,15 +15,25 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
-from audit_log import get_log, log_entry
-from confidence_scoring import combine_scores, determine_attribution_result, determine_direction
+from audit_log import find_latest_decision, get_log, log_entry, update_submission_status
+from confidence_scoring import combine_scores, determine_attribution_result
+from label_generator import generate_label
 from signals.llm_signal import get_llm_score
 from signals.stylometric_signal import get_stylometric_score
 
 load_dotenv()
 
 app = Flask(__name__)
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 
 MAX_TEXT_LENGTH = 20_000  # generous cap; guards against pathological payloads
 
@@ -33,6 +43,7 @@ def _now_iso():
 
 
 @app.route("/submit", methods=["POST"])
+@limiter.limit("10 per minute;100 per day")
 def submit():
     data = request.get_json(silent=True)
     if not data:
@@ -66,15 +77,8 @@ def submit():
     combined_score = scoring_result["combined_score"]
     attribution_result = determine_attribution_result(combined_score)
 
-    # Label text finalized in Milestone 5 — for now, surface enough
-    # structured info (result, score, direction) to verify scoring logic
-    # end-to-end without committing to exact label wording yet.
-    direction = determine_direction(combined_score) if attribution_result == "uncertain" else None
-    placeholder_label = (
-        f"[Placeholder label — exact wording finalized in Milestone 5] "
-        f"attribution={attribution_result}, confidence={combined_score:.2f}"
-        + (f", direction={direction}" if direction else "")
-    )
+    # --- Transparency label (planning.md Milestone 2 §3) ---
+    label_result = generate_label(combined_score)
 
     # --- Audit log entry ---
     log_entry({
@@ -93,6 +97,7 @@ def submit():
         "spread": scoring_result["spread"],
         "signals_agree": scoring_result["signals_agree"],
         "confidence_score": combined_score,
+        "label_text": label_result["label_text"],
         "status": "classified",
     })
 
@@ -100,11 +105,65 @@ def submit():
         "content_id": content_id,
         "attribution_result": attribution_result,
         "confidence_score": combined_score,
-        "label_text": placeholder_label,
+        "label_text": label_result["label_text"],
         "signals": {
             "llm_score": llm_score,
             "stylometric_score": stylo_score,
         },
+        "timestamp": timestamp,
+    }), 201
+
+
+@app.route("/appeal", methods=["POST"])
+def appeal():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Request body must be JSON."}), 400
+
+    content_id = data.get("content_id")
+    creator_reasoning = data.get("creator_reasoning")
+
+    if not content_id or not isinstance(content_id, str):
+        return jsonify({"error": "'content_id' field is required and must be a string."}), 400
+
+    if not creator_reasoning or not isinstance(creator_reasoning, str) or not creator_reasoning.strip():
+        return jsonify({"error": "'creator_reasoning' field is required and must be a non-empty string."}), 400
+
+    original = find_latest_decision(content_id)
+    if not original:
+        return jsonify({"error": f"No submission found with content_id '{content_id}'."}), 404
+
+    timestamp = _now_iso()
+
+    # Mutate the original submission entry so a single GET /log?content_id=...
+    # call shows the current status + reasoning at a glance...
+    update_submission_status(
+        content_id,
+        new_status="under_review",
+        extra_fields={
+            "appeal_reasoning": creator_reasoning,
+            "appeal_timestamp": timestamp,
+        },
+    )
+
+    # ...and also append a distinct 'appeal' event entry, preserving a
+    # full, append-only audit trail of the appeal action itself
+    # (planning.md Milestone 2 §4: "log the appeal alongside the
+    # original decision").
+    log_entry({
+        "event_type": "appeal",
+        "content_id": content_id,
+        "timestamp": timestamp,
+        "appeal_reasoning": creator_reasoning,
+        "status": "under_review",
+        "original_attribution_result": original.get("attribution_result"),
+        "original_confidence_score": original.get("confidence_score"),
+    })
+
+    return jsonify({
+        "content_id": content_id,
+        "status": "under_review",
+        "appeal_logged": True,
         "timestamp": timestamp,
     }), 201
 
