@@ -19,10 +19,12 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from audit_log import find_latest_decision, get_log, log_entry, update_submission_status
-from confidence_scoring import combine_scores, determine_attribution_result
+from confidence_scoring import determine_attribution_result
+from ensemble_scoring import combine_ensemble_scores
 from label_generator import generate_label
 from signals.llm_signal import get_llm_score
 from signals.stylometric_signal import get_stylometric_score
+from signals.structural_signal import get_structural_score
 
 load_dotenv()
 
@@ -72,8 +74,12 @@ def submit():
     signal_2_result = get_stylometric_score(text)
     stylo_score = signal_2_result["stylo_score"]
 
-    # --- Confidence scoring: agreement-band combination (planning.md M1/M2) ---
-    scoring_result = combine_scores(llm_score, stylo_score)
+    # --- Signal 3: Structural/formatting patterns (Stretch: Ensemble Detection) ---
+    signal_3_result = get_structural_score(text)
+    structural_score = signal_3_result["structural_score"]
+
+    # --- Confidence scoring: 3-signal weighted-voting ensemble (planning.md Stretch 1) ---
+    scoring_result = combine_ensemble_scores(llm_score, stylo_score, structural_score)
     combined_score = scoring_result["combined_score"]
     attribution_result = determine_attribution_result(combined_score)
 
@@ -94,7 +100,11 @@ def submit():
         "signal_2_score": stylo_score,
         "signal_2_metrics": signal_2_result["metrics"],
         "signal_2_reliable": signal_2_result["reliable"],
-        "spread": scoring_result["spread"],
+        "signal_3_score": structural_score,
+        "signal_3_metrics": signal_3_result["metrics"],
+        "signal_3_reliable": signal_3_result["reliable"],
+        "ensemble_weighted_score": scoring_result["weighted_score"],
+        "ensemble_variance": scoring_result["variance"],
         "signals_agree": scoring_result["signals_agree"],
         "confidence_score": combined_score,
         "label_text": label_result["label_text"],
@@ -109,6 +119,7 @@ def submit():
         "signals": {
             "llm_score": llm_score,
             "stylometric_score": stylo_score,
+            "structural_score": structural_score,
         },
         "timestamp": timestamp,
     }), 201
