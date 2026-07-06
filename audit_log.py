@@ -89,3 +89,29 @@ def find_latest_decision(content_id: str):
         if e.get("content_id") == content_id and e.get("event_type") == "submission"
     ]
     return matches[-1] if matches else None
+
+
+def update_submission_status(content_id: str, new_status: str, extra_fields: dict = None):
+    """
+    Mutates the original submission entry for `content_id` in place:
+    updates its `status` field and merges any extra_fields (e.g.
+    appeal_reasoning, appeal_timestamp) directly onto that entry, so a
+    single GET /log?content_id=... call shows the full current state at
+    a glance, alongside the separate 'appeal' event entry logged for
+    audit-trail history.
+
+    Returns True if a matching submission entry was found and updated,
+    False otherwise (content_id doesn't exist).
+    """
+    with _lock:
+        entries = _read_all()
+        updated = False
+        for e in entries:
+            if e.get("content_id") == content_id and e.get("event_type") == "submission":
+                e["status"] = new_status
+                if extra_fields:
+                    e.update(extra_fields)
+                updated = True
+        if updated:
+            _write_all(entries)
+    return updated
