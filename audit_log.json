@@ -151,5 +151,27 @@
     "signals_agree": false,
     "confidence_score": 0.4657348270377904,
     "status": "classified"
+  },
+  {
+    "event_type": "submission",
+    "content_id": "8674870c-21ee-45ed-9ecd-f24ba32a1719",
+    "creator_id": "user_test",
+    "timestamp": "2026-07-06T11:34:08.592738+00:00",
+    "text": "I'd like to start learning a new language next month.Reason being is to be able to converse with locals on my next trip.I'm unsure what language to learn, maybe french or german.",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.6,
+    "signal_1_reasoning": "The text lacks personal flair and has a straightforward structure, but the language choice and sentence composition are simple enough to be either human or AI-generated.",
+    "signal_1_error": null,
+    "signal_2_score": 0.4125,
+    "signal_2_metrics": {
+      "sentence_length_stdev": 0.0,
+      "type_token_ratio": 0.853,
+      "hedge_phrase_density": 0.0
+    },
+    "signal_2_reliable": false,
+    "spread": 0.1875,
+    "signals_agree": true,
+    "confidence_score": 0.50625,
+    "status": "classified"
   }
 ]
