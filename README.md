@@ -415,7 +415,7 @@ POST /submit
     "attribution_result": "ai" | "human" | "uncertain",
     "confidence_score": float,
     "label_text": string,
-    "signals": { "llm_score": float, "stylometric_score": float },
+    "signals": { "llm_score": float, "stylometric_score": float, "structural_score": float },
     "timestamp": string
   }
 
@@ -437,7 +437,66 @@ GET /log
 
 ## Stretch Features
 
-Planned: ensemble detection, provenance certificate, analytics dashboard,
-multi-modal support. Each will be documented here (what was built and how
-it works) as completed — see `planning.md` for pre-implementation design
-notes on each.
+### Stretch 1: Ensemble Detection ✅
+
+**What was built:** a third detection signal — structural/formatting
+pattern analysis — combined with the existing two signals using a
+weighted-voting approach, replacing the pairwise agreement-band as the
+live scoring path in `/submit`.
+
+**Signal 3 — Structural & punctuation patterns** (`signals/structural_signal.py`,
+pure Python): measures em-dash/en-dash density, paragraph-length
+uniformity (when 2+ paragraphs are present), and density of transitional
+connector words ("however," "consequently," "therefore," etc.) used as
+sentence openers — a distinct list from Signal 2's hedge phrases. Genuine
+independence from Signal 2 was confirmed empirically: on both the
+"clearly AI" and "clearly human" Milestone 4 test texts, Signal 3 stayed
+neutral (0.4) since neither uses dashes or connector-openers — but on a
+text deliberately written with heavy em-dash/connector usage, it
+correctly spiked to 0.717. This shows the signal isn't redundant with
+Signal 2, though it also means it doesn't always contribute a strong
+opinion — a documented, honest limitation rather than a hidden one.
+
+**Combination — Weighted Voting** (`ensemble_scoring.py`):
+
+```python
+weights = {"llm": 0.5, "stylometric": 0.3, "structural": 0.2}
+weighted_score = sum(score_i * weight_i for each signal)
+
+variance = population variance of the 3 raw scores
+if variance < 0.02:      # signals agree
+    combined_score = weighted_score
+else:                     # signals disagree — dampen toward 0.5
+    combined_score = 0.5 + (weighted_score - 0.5) * damping_factor
+    # damping_factor shrinks toward 0 as variance grows, capped at variance=0.25
+```
+
+Weights reflect empirical trust established in Milestone 4: the LLM
+signal showed the clearest directional accuracy, stylometric had already
+needed one calibration fix, and structural is the newest/least-tested
+signal — so it gets the smallest voice. This mirrors the same underlying
+philosophy as the Milestone 1 pairwise agreement-band (broad disagreement
+should reduce confidence, not be silently averaged away), extended to
+handle 3 inputs via variance instead of pairwise spread.
+
+**Verified** (internal wiring test — full example below): all 3 signals
+compute independently, combine correctly, and the audit log captures the
+full breakdown (`signal_3_score`, `signal_3_metrics`,
+`ensemble_weighted_score`, `ensemble_variance`, `signals_agree`):
+
+```json
+{
+  "signal_1_score": 0.9,
+  "signal_2_score": 0.684,
+  "signal_3_score": 0.4,
+  "ensemble_weighted_score": 0.735,
+  "ensemble_variance": 0.042,
+  "signals_agree": false,
+  "confidence_score": 0.696,
+  "attribution_result": "uncertain",
+  "label_text": "We're not confident in this content's origin. Our signals give mixed results, leaning slightly toward AI-generated (confidence: 0.70). Treat this result with caution."
+}
+```
+
+This design decision is documented in `planning.md` under Stretch 1,
+written before implementation began, per project requirements.
