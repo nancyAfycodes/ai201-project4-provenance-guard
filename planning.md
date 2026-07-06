@@ -525,7 +525,63 @@ core project requirement — remains intact and independently inspectable.
 `app.py` is updated to call the ensemble path as the live pipeline once
 this stretch feature is complete.
 
-**Verification plan:** run the same 4 test cases from Milestone 4 through
-the 3-signal ensemble and confirm scores still vary meaningfully and
-directionally correctly; document any new calibration findings the same
-way Milestone 4's findings were documented (honestly, not hidden).
+**Status: ✅ Complete.** Verified against real submissions — see README
+Stretch 1 section for actual results and the independence finding for
+Signal 3.
+
+### Stretch 2: Provenance Certificate (design — pre-implementation)
+
+**Goal:** a "verified human" credential a creator can earn through an
+additional verification step, including how it's displayed on content.
+
+**Verification method chosen: Writing sample analysis.** A creator
+submits 3+ past writing samples via a new `POST /verify` endpoint. The
+system checks two things:
+
+1. **Each sample individually scores human-leaning** — runs the full
+   3-signal ensemble pipeline (same as `/submit`) on every sample and
+   requires the **average** combined score across all samples to be
+   ≤ 0.45 (a bit below the true midpoint of 0.5, chosen leniently since
+   Stretch 1 testing showed genuinely human text often scores in the
+   0.24–0.41 range with the current signals, not near 0.0 — see
+   Confidence Scoring §2 calibration findings).
+2. **Stylistic consistency across samples** — computes the population
+   variance of the Signal 2 (stylometric) score across all submitted
+   samples. Low variance suggests a single, consistent personal writing
+   voice across different pieces (a weak but real proxy — actual identity
+   verification is out of scope for this project). Threshold: variance
+   ≤ 0.03 (deliberately looser than the single-submission ensemble
+   agreement threshold of 0.02, since comparing *across different pieces
+   of writing on different topics* naturally introduces more variation
+   than 3 signals agreeing on one piece).
+
+Both checks must pass to issue a certificate. This is an intentionally
+simple, explainable proxy — not real identity verification — and is
+documented as such rather than oversold.
+
+**Certificate record:** `{certificate_id, creator_id, issued_at,
+sample_count, avg_confidence_score, consistency_variance}`, stored in
+`certificates.json` (same JSON-file-store pattern as the audit log) and
+logged as an audit entry (`event_type: "certificate_issued"`).
+
+**Endpoints:**
+```
+POST /verify
+  body: { "creator_id": string, "samples": [string, string, string, ...] }
+  returns: { "verified": bool, "certificate_id"?: string, "reason"?: string, ... }
+
+GET /certificate/<creator_id>
+  returns: certificate record, or 404 if not verified
+```
+
+**Display on content:** rather than altering the 3 core transparency
+label variants (which must remain verbatim per the project's format
+requirement), the verified badge is a **separate additive field** on the
+`/submit` response: `"creator_verified": true/false`, and when true, a
+fixed badge text:
+
+> "✓ Verified Human Creator — this creator has completed Provenance
+> Guard's writing-sample verification process."
+
+This keeps the label contract intact while still surfacing the
+credential wherever content is shown.
