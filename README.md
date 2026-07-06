@@ -179,11 +179,117 @@ Flask-Limiter is wired into the `/submit` endpoint.)*
 
 ## Audit Log
 
-Every attribution decision and appeal is captured in a structured log,
-including confidence score, both signal scores, and label assigned.
+Every attribution decision is captured in a structured log entry
+containing: timestamp, content ID, both individual signal scores
+(`signal_1_score`, `signal_2_score` + its metric breakdown), the
+agreement/spread calculation, the combined confidence score, the
+attribution result, and status. Retrieved live via `GET /log`.
 
-*(At least 3 real log entries — from `GET /log` output — to be added here
-in Milestone 5.)*
+Below are 4 real entries from testing (Milestone 4), reflecting the full
+two-signal pipeline. The complete, growing log — including earlier
+single-signal entries from Milestone 3's initial wiring — is visible at
+`GET /log` and stored in `audit_log.json`.
+
+**1. Clearly AI-generated test case**
+```json
+{
+  "event_type": "submission",
+  "content_id": "943ccc2e-b238-4cb4-a76b-2ff71c8d231a",
+  "creator_id": "user_ai",
+  "timestamp": "2026-07-06T10:56:56.568974+00:00",
+  "attribution_result": "uncertain",
+  "confidence_score": 0.6321489849689581,
+  "signal_1_score": 0.8,
+  "signal_1_reasoning": "The text's formal tone and repetitive phrase structure are characteristic of AI-generated content.",
+  "signal_2_score": 0.5516320965443511,
+  "signal_2_metrics": {
+    "sentence_length_stdev": 6.658,
+    "type_token_ratio": 0.884,
+    "hedge_phrase_density": 4.651
+  },
+  "signal_2_reliable": true,
+  "spread": 0.24836790345564896,
+  "signals_agree": false,
+  "status": "classified"
+}
+```
+
+**2. Clearly human-written test case**
+```json
+{
+  "event_type": "submission",
+  "content_id": "deb098ca-13f6-409b-8986-fe1443cdd80f",
+  "creator_id": "user_human",
+  "timestamp": "2026-07-06T10:57:43.091475+00:00",
+  "attribution_result": "uncertain",
+  "confidence_score": 0.24079888057436422,
+  "signal_1_score": 0.23,
+  "signal_1_reasoning": "The text's casual tone and use of colloquial expressions, such as 'honestly' and 'drag me', suggest a human author.",
+  "signal_2_score": 0.25159776114872845,
+  "signal_2_metrics": {
+    "sentence_length_stdev": 7.517,
+    "type_token_ratio": 0.873,
+    "hedge_phrase_density": 0.0
+  },
+  "signal_2_reliable": true,
+  "spread": 0.02159776114872844,
+  "signals_agree": true,
+  "status": "classified"
+}
+```
+
+**3. Borderline formal human writing (false-positive-scenario in the wild)**
+```json
+{
+  "event_type": "submission",
+  "content_id": "feab0ac9-da8a-4dc1-a995-9419f68ea383",
+  "creator_id": "user_econ",
+  "timestamp": "2026-07-06T10:58:43.501541+00:00",
+  "attribution_result": "uncertain",
+  "confidence_score": 0.4847606579322196,
+  "signal_1_score": 0.7,
+  "signal_1_reasoning": "The text's formal tone and use of technical terms suggest AI generation, but the nuanced discussion of economic concepts could also be written by a human expert.",
+  "signal_2_score": 0.24396990770264937,
+  "signal_2_metrics": {
+    "sentence_length_stdev": 7.778,
+    "type_token_ratio": 0.86,
+    "hedge_phrase_density": 0.0
+  },
+  "signal_2_reliable": false,
+  "spread": 0.4560300922973506,
+  "signals_agree": false,
+  "status": "classified"
+}
+```
+This entry is a real, live instance of the false-positive scenario traced
+in `planning.md` Milestone 1 §3: Signal 1 incorrectly leaned toward "AI"
+on dense academic prose, but Signal 2 correctly caught it as human-like.
+The sharp disagreement (spread=0.456) correctly pulled the combined score
+to near-neutral (0.485) rather than trusting the wrong signal.
+
+**4. Borderline lightly-edited AI text**
+```json
+{
+  "event_type": "submission",
+  "content_id": "a9adf2c7-7726-4c00-9d62-c73d03dbb429",
+  "creator_id": "user_remote",
+  "timestamp": "2026-07-06T10:59:41.223776+00:00",
+  "attribution_result": "uncertain",
+  "confidence_score": 0.4657348270377904,
+  "signal_1_score": 0.6,
+  "signal_1_reasoning": "The text's formal tone and balanced analysis suggest AI involvement, but the personal reflection and nuanced discussion imply human input.",
+  "signal_2_score": 0.30243950481969245,
+  "signal_2_metrics": {
+    "sentence_length_stdev": 5.774,
+    "type_token_ratio": 0.9,
+    "hedge_phrase_density": 0.0
+  },
+  "signal_2_reliable": true,
+  "spread": 0.2975604951803075,
+  "signals_agree": false,
+  "status": "classified"
+}
+```
 
 ---
 
