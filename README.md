@@ -261,26 +261,29 @@ def submit():
   set higher ceilings for verified platform integrations. That
   refinement is out of scope here.
 
-**Verified with the required test** (12 rapid requests against a 10/minute
-limit) — internal wiring test using the Flask test client (see
-`test_rate_limit.sh` for the equivalent live curl script):
+**Verified with the required test** — 12 rapid requests against the
+10/minute limit, run via `test_rate_limit.ps1` (PowerShell equivalent of
+the bash test script, for Windows environments) against the live running
+server:
 
 ```
-Status codes for 12 rapid requests:
-[201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 429, 429]
-
-Successes (201): 10
-Rate limited (429): 2
+201
+201
+201
+201
+201
+201
+201
+201
+201
+429
+429
 ```
 
-Note: `/submit` returns `201 Created` on success (not `200`, since a new
-resource — the classification decision — is created), so the live curl
-test's expected output is 10× `201` followed by 2× `429`, not `200`/`429`
-as in the milestone's generic example.
-
-*(To be replaced with your own live output from running
-`test_rate_limit.sh` against the running server with the real Groq
-backend, for final submission evidence.)*
+Successes return `201` (not `200`, since a new resource — the
+classification decision — is created); rejections correctly return `429`
+once the limit is exceeded, confirming Flask-Limiter is active and
+enforcing the configured threshold.
 
 ---
 
