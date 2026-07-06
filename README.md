@@ -171,60 +171,62 @@ On receipt, the system:
 Automated re-classification is **not** triggered — this is a queue for
 human review, consistent with project scope.
 
-**Worked example** (verified via internal testing — reproduce live with
-the curl command below):
+**Worked example** (real output, verified live):
 
 Request:
 ```bash
 curl -s -X POST http://localhost:5000/appeal \
   -H "Content-Type: application/json" \
-  -d '{"content_id": "PASTE-CONTENT-ID-HERE", "creator_reasoning": "I wrote this myself. I am a non-native English speaker and my writing style may appear more formal than typical."}' | python -m json.tool
+  -d '{"content_id": "8674870c-21ee-45ed-9ecd-f24ba32a1719", "creator_reasoning": "I wrote this myself. I'\''m a native English speaker and my writing style may appear more formal in certain situations."}' | python -m json.tool
 ```
 
-Response:
-```json
-{
-  "content_id": "98f13491-69df-4c94-bac1-28a19f3ede64",
-  "status": "under_review",
-  "appeal_logged": true,
-  "timestamp": "2026-07-06T11:08:35.221970+00:00"
-}
-```
-
-Resulting `GET /log?content_id=...` shows two linked entries: the
-original `submission` entry (mutated in place — `status` now
-`under_review`, with `appeal_reasoning` and `appeal_timestamp` fields
-added), and a separate `appeal` event entry preserving a full audit trail
-of the appeal action itself, referencing the original decision's
-attribution result and confidence score:
+Resulting `GET /log?content_id=8674870c-21ee-45ed-9ecd-f24ba32a1719`
+shows two linked entries: the original `submission` entry (mutated in
+place — `status` now `under_review`, with `appeal_reasoning` and
+`appeal_timestamp` added), and a separate `appeal` event entry
+preserving a full audit trail of the appeal action itself:
 
 ```json
-{
-  "entries": [
-    {
-      "event_type": "appeal",
-      "content_id": "98f13491-69df-4c94-bac1-28a19f3ede64",
-      "timestamp": "2026-07-06T11:08:35.221970+00:00",
-      "appeal_reasoning": "I wrote this myself. I am a non-native English speaker and my writing style may appear more formal than typical.",
-      "status": "under_review",
-      "original_attribution_result": "uncertain",
-      "original_confidence_score": 0.7289
+[
+  {
+    "event_type": "submission",
+    "content_id": "8674870c-21ee-45ed-9ecd-f24ba32a1719",
+    "creator_id": "user_test",
+    "timestamp": "2026-07-06T11:34:08.592738+00:00",
+    "text": "I'd like to start learning a new language next month. Reason being is to be able to converse with locals on my next trip. I'm unsure what language to learn, maybe french or german.",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.6,
+    "signal_1_reasoning": "The text lacks personal flair and has a straightforward structure, but the language choice and sentence composition are simple enough to be either human or AI-generated.",
+    "signal_2_score": 0.4125,
+    "signal_2_metrics": {
+      "sentence_length_stdev": 0.0,
+      "type_token_ratio": 0.853,
+      "hedge_phrase_density": 0.0
     },
-    {
-      "event_type": "submission",
-      "content_id": "98f13491-69df-4c94-bac1-28a19f3ede64",
-      "creator_id": "user_a",
-      "status": "under_review",
-      "appeal_reasoning": "I wrote this myself. I am a non-native English speaker and my writing style may appear more formal than typical.",
-      "appeal_timestamp": "2026-07-06T11:08:35.221970+00:00",
-      "attribution_result": "uncertain",
-      "confidence_score": 0.7289,
-      "label_text": "We're not confident in this content's origin. Our signals give mixed results, leaning slightly toward AI-generated (confidence: 0.73). Treat this result with caution.",
-      "...": "(signal scores, metrics, etc. — see full Audit Log section above)"
-    }
-  ]
-}
+    "spread": 0.1875,
+    "signals_agree": true,
+    "confidence_score": 0.50625,
+    "status": "under_review",
+    "appeal_reasoning": "I wrote this myself. I'm a native English speaker and my writing style may appear more formal in certain situations.",
+    "appeal_timestamp": "2026-07-06T12:09:07.842061+00:00"
+  },
+  {
+    "event_type": "appeal",
+    "content_id": "8674870c-21ee-45ed-9ecd-f24ba32a1719",
+    "timestamp": "2026-07-06T12:09:07.842061+00:00",
+    "appeal_reasoning": "I wrote this myself. I'm a native English speaker and my writing style may appear more formal in certain situations.",
+    "status": "under_review",
+    "original_attribution_result": "uncertain",
+    "original_confidence_score": 0.50625
+  }
+]
 ```
+
+This example is itself a small real instance of the "borderline" problem
+from `planning.md`: a short, plainly-written piece of personal writing
+landed almost exactly at the midpoint (0.506) — genuinely ambiguous
+signals, appropriately labeled "uncertain" rather than forced into a
+confident wrong guess, with a real path for the creator to contest it.
 
 ---
 
