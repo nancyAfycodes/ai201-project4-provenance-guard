@@ -11,5 +11,57 @@
     "signal_1_error": null,
     "confidence_score": 0.7,
     "status": "classified"
+  },
+  {
+    "event_type": "submission",
+    "content_id": "e77f9da1-9d0b-4360-900d-6353129c00dc",
+    "creator_id": "user_beta",
+    "timestamp": "2026-07-06T10:13:50.535629+00:00",
+    "text": "My grandmother kept a jar of buttons on the windowsill, not for sewing, just for looking at when the light hit them right around 4pm. I broke it once. She did not yell. She just started a new jar the next morning, like nothing happened.",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.3,
+    "signal_1_reasoning": "The narrative has a nuanced and sentimental tone, suggesting a human author.",
+    "signal_1_error": null,
+    "confidence_score": 0.3,
+    "status": "classified"
+  },
+  {
+    "event_type": "submission",
+    "content_id": "cd5e7c19-9161-48a8-affd-a5d04887ee38",
+    "creator_id": "user_gamma",
+    "timestamp": "2026-07-06T10:16:03.038139+00:00",
+    "text": "Winter porch light,\nthe cat waits by a closed door,\nsnow forgets to fall.",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.4,
+    "signal_1_reasoning": "The concise and simple language suggests human poetry.",
+    "signal_1_error": null,
+    "confidence_score": 0.4,
+    "status": "classified"
+  },
+  {
+    "event_type": "submission",
+    "content_id": "bfd45926-b789-4649-bc66-9ee9580f24c6",
+    "creator_id": "user_delta",
+    "timestamp": "2026-07-06T10:17:11.538202+00:00",
+    "text": "The lake was still that morning, which felt appropriate given everything. I have found that stillness often precedes change, though I could not have told you what kind of change was coming.",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.4,
+    "signal_1_reasoning": "The passage's reflective tone and nuanced language suggest a human writer.",
+    "signal_1_error": null,
+    "confidence_score": 0.4,
+    "status": "classified"
+  },
+  {
+    "event_type": "submission",
+    "content_id": "a8e2b4bd-a096-4169-b83a-2c412b08a800",
+    "creator_id": "user_alpha",
+    "timestamp": "2026-07-06T10:19:44.438283+00:00",
+    "text": "It is worth noting that in today's rapidly evolving landscape, organizations must carefully consider a multitude of factors when navigating complex challenges. Ultimately, success depends on a holistic and strategic approach.",
+    "attribution_result": "ai",
+    "signal_1_score": 0.8,
+    "signal_1_reasoning": "The text's generic and formulaic language suggests AI generation.",
+    "signal_1_error": null,
+    "confidence_score": 0.8,
+    "status": "classified"
   }
 ]
