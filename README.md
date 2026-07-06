@@ -20,6 +20,9 @@ samples, and appeal handling, as required by the project spec.
 - [Appeals Workflow](#appeals-workflow)
 - [Rate Limiting](#rate-limiting)
 - [Audit Log](#audit-log)
+- [Known Limitations](#known-limitations)
+- [Spec Reflection](#spec-reflection)
+- [AI Usage](#ai-usage)
 - [API Reference](#api-reference)
 - [Stretch Features](#stretch-features)
 
@@ -27,30 +30,62 @@ samples, and appeal handling, as required by the project spec.
 
 ## Detection Signals
 
-Provenance Guard uses **two independent signals** to classify content
-(single-signal detection is not used):
+Provenance Guard uses **three independent signals** to classify content
+(single-signal detection is not used; see Stretch 1 for how a third
+signal was added to the original two):
 
 1. **LLM-based judgment** (Groq, `llama-3.3-70b-versatile`) — assesses
    holistic semantic/stylistic AI-likelihood (hedging, generic phrasing,
-   structural predictability). Blind spot: black-box reasoning, possible
-   bias against unusual-but-authentic human styles.
+   structural predictability). Chosen because it captures things no
+   fixed rule can: tone, argument structure, genuine specificity vs.
+   generic filler — the kind of judgment a careful human reader makes
+   intuitively. Blind spot: black-box reasoning, and a real, observed
+   bias against unusual-but-authentic human styles — formal or
+   carefully-written human prose sometimes reads as "AI-like" to it (see
+   Known Limitations below for a concrete, tested example of this).
 2. **Stylometric heuristics** (pure Python) — measures 3 statistical
    fingerprints: sentence length variance, vocabulary diversity
-   (type-token ratio), and hedge-phrase density (frequency of common AI
-   stock phrases like "it is important to note", "furthermore"). These
-   are combined into a single score using a **weighted** (not flat)
-   average — hedge-phrase density is weighted highest (0.5) after testing
-   showed it discriminates more reliably than type-token ratio at short
-   text lengths (see Confidence Scoring section below for the finding).
-   Blind spot: easily thrown off by very short texts or intentionally
-   repetitive/simple human writing (e.g. poetry forms, children's
-   writing).
+   (type-token ratio), and hedge-phrase density. Chosen specifically to
+   be the LLM signal's opposite in kind: cheap, deterministic,
+   fully explainable, and independent of any AI model's own biases —
+   when the LLM signal is wrong, this signal has a chance to catch it
+   (and did, in the false-positive scenario documented below). Combined
+   via a **weighted** average — hedge-phrase density weighted highest
+   (0.5) after testing showed it discriminates more reliably than
+   type-token ratio at short text lengths. Blind spot: easily thrown off
+   by very short texts or intentionally repetitive/simple human writing.
+3. **Structural/formatting patterns** (pure Python, added in Stretch 1) —
+   em-dash density, paragraph uniformity, and connector-word density.
+   Chosen as a third, genuinely different axis (formatting habits, not
+   sentence statistics or vocabulary) specifically so the ensemble isn't
+   just two flavors of the same idea. Blind spot: often has nothing to
+   say — many genuinely human or AI texts don't use em-dashes or heavy
+   connectors at all, so it frequently contributes a neutral, uninformative
+   score rather than a wrong one.
 
-Both signals output a score from `0.0` to `1.0` representing `P(AI)`. Full
-rationale for signal choice is in `planning.md` → Milestone 1 §2 and
-Milestone 2 §1.
+All three signals output a score from `0.0` to `1.0` representing
+`P(AI)`. Full rationale for signal choice is in `planning.md` → Milestone
+1 §2, Milestone 2 §1, and Stretch 1.
 
-*(Implementation details and code walkthrough to be added in Milestone 3.)*
+**Why these three, and what I'd change for a real deployment:** the
+combination was chosen to cover 3 different failure modes — the LLM
+signal for deep semantic judgment, stylometrics for cheap deterministic
+cross-checking, and structural patterns for a third independent
+viewpoint — rather than three variations on the same idea. If deploying
+this for real, the first thing I'd change is calibration: all three
+signals were hand-tuned against a handful of test cases (documented
+throughout this README as honest findings, not hidden), not a proper
+labeled validation set. A real deployment would need a genuine labeled
+dataset — including AI text from multiple model families, not just
+Groq's own model family, since a detector trained/tuned against one
+model's output style may not generalize to others — and formal
+calibration (e.g. Platt scaling) instead of hand-set thresholds. I'd also
+want a 4th signal that doesn't share any blind spots with the other
+three — all three current signals can be fooled by a sufficiently
+careful human editor or a sufficiently well-prompted AI, so they're
+correlated in ways a truly independent signal (e.g. metadata/provenance
+at the platform level, like edit-history or paste-detection) would not
+be.
 
 ---
 
@@ -85,6 +120,17 @@ human, 2 borderline) — real output from `test_combined_scoring.py`:
 | Clearly human-written | 0.23 | 0.25 | 0.02 | Yes | 0.241 | uncertain | human-written |
 | Borderline: formal human writing | 0.70 | 0.24 | 0.46 | No | 0.485 | uncertain | human-written |
 | Borderline: lightly edited AI | 0.60 | 0.29 | 0.31 | No | 0.463 | uncertain | human-written |
+
+**Higher- vs. lower-confidence comparison** (illustrating that scores
+vary meaningfully, not constantly): the **"clearly AI-generated"** input
+scored **0.632** — the highest score observed in this test batch — while
+the **"clearly human-written"** input scored **0.241** — the lowest. That's
+a spread of nearly 0.4 between the two, driven by genuinely different
+underlying signal readings, not a fixed or arbitrary offset. Neither
+example reached the ≥0.80/≤0.20 "high-confidence" thresholds in this
+particular run — itself an honest, consistently-observed finding
+throughout this project (see Known Limitations and Spec Reflection below)
+rather than a cherry-picked result.
 
 **What this validates:** the "borderline formal human" case is a direct,
 real-world instance of the false-positive scenario designed in
@@ -403,6 +449,110 @@ to near-neutral (0.485) rather than trusting the wrong signal.
 ```
 
 ---
+
+## Known Limitations
+
+Being specific rather than generic, per the project's own standard:
+
+**Formal or carefully-written human prose, especially from non-native
+English speakers, gets misclassified as AI-leaning.** This isn't
+hypothetical — it happened during real testing of this exact system.
+The developer submitted their own genuine writing multiple times and
+Signal 1 (LLM judgment) scored it 0.70 ("uncertain, leaning AI") on more
+than one occasion, and a `/verify` certification attempt with 3 real
+personal writing samples narrowly failed (average score 0.462 vs. the
+0.45 threshold) for the same reason. This is tied directly to a specific
+property of Signal 1, not a vague "needs more data" excuse: the model's
+holistic judgment conflates *polish and formality* with *AI generation*,
+because both share surface features (complete sentences, careful word
+choice, low error rate) even though formality and machine authorship are
+completely different things. A careful, formal human writer — including
+many non-native English speakers, who often write more formally and
+carefully than native speakers as a learned skill — will systematically
+trigger this signal more than a casual native-English writer would, which
+is a real fairness concern for a system like this, not just an accuracy
+one.
+
+A second, related limitation: **very short creative text (haiku, single-
+stanza poems) is unreliable across all three signals**, not because the
+signals are wrong in direction but because they lack enough data to
+compute stable statistics — sentence-length variance and vocabulary
+diversity are close to meaningless with only 2-3 sentences. The system
+flags this via `reliable: false` fields in the signal output, but a
+non-technical end user seeing a label wouldn't know that reliability
+information exists unless a platform integration surfaces it, which this
+project's scope doesn't cover.
+
+## Spec Reflection
+
+**How the spec helped:** the requirement to write out the exact,
+verbatim text of all three label variants *before* building anything
+(Milestone 2) forced an early, concrete decision that shaped the whole
+system's architecture for the better. Rather than designing a vague
+"confidence indicator" and figuring out display text later, having to
+commit to exact wording up front — including the awkward exact-0.50 tie
+case — surfaced edge cases (like "what does the system say when it
+genuinely doesn't know which way to lean?") much earlier than they
+would have come up otherwise, leading directly to the single-axis
+`P(AI)` scoring design instead of a more confusing two-axis "AI
+confidence" / "human confidence" split that was briefly considered.
+
+**Where the implementation diverged from what the spec seems to assume:**
+the project description's framing (a system that produces "high-
+confidence AI," "high-confidence human," and "uncertain" as roughly
+comparable outcomes) implicitly suggests a reasonably even three-way
+split in practice. Real testing showed this isn't what happened: the
+live analytics dashboard shows **92.9% of real submissions landed in
+"uncertain,"** with only 7.1% reaching "ai" and 0% reaching "human,"
+because the agreement-band/ensemble scoring is deliberately conservative
+about dampening toward uncertainty whenever signals don't tightly agree
+(a design choice made explicitly in Milestone 4 and re-affirmed in
+Stretch 2, and documented honestly rather than tuned away). The system
+diverged from an implied "balanced three-way classifier" toward what it
+actually is: an "uncertain by default, confident only when genuinely
+warranted" classifier. This was a deliberate choice, not an oversight —
+but it's worth naming plainly, since a system that says "uncertain" 93%
+of the time is a very different product than one might picture from the
+spec's framing alone.
+
+## AI Usage
+
+This project was built in collaboration with Claude (Anthropic), used as
+an active coding and design partner throughout, not just for boilerplate.
+Two specific instances:
+
+1. **Stylometric signal combination logic.** I directed Claude to
+   implement the 3-metric stylometric signal (sentence variance, TTR,
+   hedge-phrase density) combining them via a simple average, per the
+   initial plan. Claude produced that flat-average implementation and
+   then, per the Milestone 4 instruction to test against known inputs,
+   ran the milestone's own sample texts through it — which surfaced that
+   the flat average was scoring a clearly AI-generated paragraph as only
+   0.452 (barely above neutral) because type-token ratio was biased
+   upward by the passage's short length, working against the correct
+   classification. I had it revise the combination to a weighted average
+   favoring hedge-phrase density instead, based on that empirical
+   finding, rather than accepting the initial output as final.
+2. **Ensemble scoring combination (Stretch 1).** I directed Claude to
+   design and implement a 3-signal weighted-voting combination function
+   once a third signal was added. It produced `ensemble_scoring.py` with
+   a variance-based dampening rule. Before accepting it, I had it verify
+   the function's output against manually-checked math for an agreement
+   case, a disagreement case, and the exact-tie case — and separately,
+   real testing later surfaced that the variance threshold treats
+   same-direction signal disagreement (e.g. 0.80 vs 0.55, both leaning
+   AI) the same as opposite-direction disagreement, which I chose to
+   keep as an intentional conservative design decision rather than have
+   it "fixed," since it aligned with the project's overall philosophy of
+   preferring honest uncertainty over confident-but-fragile precision.
+
+In both cases, Claude's first draft was functionally correct code that
+ran without errors — the revisions came from testing against real data
+and catching calibration issues that only surfaced empirically, not from
+fixing bugs in the code itself. This pattern (AI writes working code →
+real testing surfaces a calibration or design issue → human decides how
+to handle it → AI implements the revision) repeated across most of this
+project's calibration findings, documented throughout this README.
 
 ## API Reference
 
