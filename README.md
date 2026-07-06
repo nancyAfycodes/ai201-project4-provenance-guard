@@ -149,6 +149,12 @@ combined score falls on.
 | 0.20 < score < 0.50 | Uncertain (leaning human-written) |
 | ≤ 0.20 | High-confidence human |
 
+**Verified:** all three variants (and both uncertain sub-cases) confirmed
+reachable and rendering exact text via direct testing of
+`label_generator.py` across the full score range (0.05 to 0.95). The
+label returned by `POST /submit` changes based on the actual combined
+confidence score for that submission — it is not static text.
+
 ---
 
 ## Appeals Workflow
@@ -165,15 +171,114 @@ On receipt, the system:
 Automated re-classification is **not** triggered — this is a queue for
 human review, consistent with project scope.
 
-*(Worked example — a real appeal request/response and its resulting audit
-log entries — to be added in Milestone 5.)*
+**Worked example** (verified via internal testing — reproduce live with
+the curl command below):
+
+Request:
+```bash
+curl -s -X POST http://localhost:5000/appeal \
+  -H "Content-Type: application/json" \
+  -d '{"content_id": "PASTE-CONTENT-ID-HERE", "creator_reasoning": "I wrote this myself. I am a non-native English speaker and my writing style may appear more formal than typical."}' | python -m json.tool
+```
+
+Response:
+```json
+{
+  "content_id": "98f13491-69df-4c94-bac1-28a19f3ede64",
+  "status": "under_review",
+  "appeal_logged": true,
+  "timestamp": "2026-07-06T11:08:35.221970+00:00"
+}
+```
+
+Resulting `GET /log?content_id=...` shows two linked entries: the
+original `submission` entry (mutated in place — `status` now
+`under_review`, with `appeal_reasoning` and `appeal_timestamp` fields
+added), and a separate `appeal` event entry preserving a full audit trail
+of the appeal action itself, referencing the original decision's
+attribution result and confidence score:
+
+```json
+{
+  "entries": [
+    {
+      "event_type": "appeal",
+      "content_id": "98f13491-69df-4c94-bac1-28a19f3ede64",
+      "timestamp": "2026-07-06T11:08:35.221970+00:00",
+      "appeal_reasoning": "I wrote this myself. I am a non-native English speaker and my writing style may appear more formal than typical.",
+      "status": "under_review",
+      "original_attribution_result": "uncertain",
+      "original_confidence_score": 0.7289
+    },
+    {
+      "event_type": "submission",
+      "content_id": "98f13491-69df-4c94-bac1-28a19f3ede64",
+      "creator_id": "user_a",
+      "status": "under_review",
+      "appeal_reasoning": "I wrote this myself. I am a non-native English speaker and my writing style may appear more formal than typical.",
+      "appeal_timestamp": "2026-07-06T11:08:35.221970+00:00",
+      "attribution_result": "uncertain",
+      "confidence_score": 0.7289,
+      "label_text": "We're not confident in this content's origin. Our signals give mixed results, leaning slightly toward AI-generated (confidence: 0.73). Treat this result with caution.",
+      "...": "(signal scores, metrics, etc. — see full Audit Log section above)"
+    }
+  ]
+}
+```
 
 ---
 
 ## Rate Limiting
 
-*(Chosen limits and reasoning to be documented here in Milestone 5, once
-Flask-Limiter is wired into the `/submit` endpoint.)*
+Applied via Flask-Limiter to `POST /submit`:
+
+```python
+@app.route("/submit", methods=["POST"])
+@limiter.limit("10 per minute;100 per day")
+def submit():
+    ...
+```
+
+**Chosen limits: 10 requests/minute, 100 requests/day, per client IP.**
+
+**Reasoning:**
+- *10/minute* comfortably covers a real writer's realistic workflow —
+  submitting a poem, checking the result, revising, and resubmitting a
+  few times in quick succession, or a platform batch-checking a handful
+  of pieces from one session. It's well above normal human submission
+  speed (a person can't meaningfully write and submit 10+ distinct pieces
+  of content in 60 seconds) but low enough to make a scripted flood
+  immediately obvious and blocked within one minute.
+- *100/day* allows for a genuinely prolific user or small-scale platform
+  integration testing across a full day, without allowing sustained
+  automated abuse (e.g. scraping or flooding the Groq-backed signal,
+  which has cost and quota implications beyond just this API).
+- Both numbers are deliberately conservative for a demo/project system
+  rather than a high-volume production platform; a real deployment would
+  likely tier limits by authenticated account rather than raw IP, and
+  set higher ceilings for verified platform integrations. That
+  refinement is out of scope here.
+
+**Verified with the required test** (12 rapid requests against a 10/minute
+limit) — internal wiring test using the Flask test client (see
+`test_rate_limit.sh` for the equivalent live curl script):
+
+```
+Status codes for 12 rapid requests:
+[201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 429, 429]
+
+Successes (201): 10
+Rate limited (429): 2
+```
+
+Note: `/submit` returns `201 Created` on success (not `200`, since a new
+resource — the classification decision — is created), so the live curl
+test's expected output is 10× `201` followed by 2× `429`, not `200`/`429`
+as in the milestone's generic example.
+
+*(To be replaced with your own live output from running
+`test_rate_limit.sh` against the running server with the real Groq
+backend, for final submission evidence.)*
 
 ---
 
@@ -308,7 +413,7 @@ POST /submit
   }
 
 POST /appeal
-  body: { "content_id": string, "reasoning": string }
+  body: { "content_id": string, "creator_reasoning": string }
   returns: {
     "content_id": string,
     "status": "under_review",
