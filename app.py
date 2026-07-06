@@ -14,16 +14,19 @@ import uuid
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, render_template_string, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
+from analytics import compute_analytics
 from audit_log import find_latest_decision, get_log, log_entry, update_submission_status
 from certification import get_certificate, issue_certificate, BADGE_TEXT
 from confidence_scoring import determine_attribution_result
+from dashboard_template import DASHBOARD_HTML
 from ensemble_scoring import combine_ensemble_scores
 from label_generator import generate_label
 from signals.llm_signal import get_llm_score
+from signals.metadata_signal import analyze_metadata_structure
 from signals.stylometric_signal import get_stylometric_score
 from signals.structural_signal import get_structural_score
 
@@ -54,6 +57,7 @@ def submit():
 
     text = data.get("text")
     creator_id = data.get("creator_id")
+    content_type = data.get("content_type", "prose")
 
     if not text or not isinstance(text, str) or not text.strip():
         return jsonify({"error": "'text' field is required and must be a non-empty string."}), 400
@@ -61,74 +65,130 @@ def submit():
     if not creator_id or not isinstance(creator_id, str):
         return jsonify({"error": "'creator_id' field is required and must be a string."}), 400
 
+    if content_type not in ("prose", "metadata"):
+        return jsonify({"error": "'content_type' must be 'prose' or 'metadata' if provided."}), 400
+
     if len(text) > MAX_TEXT_LENGTH:
         return jsonify({"error": f"'text' exceeds max length of {MAX_TEXT_LENGTH} characters."}), 400
 
     content_id = str(uuid.uuid4())
     timestamp = _now_iso()
-
-    # --- Signal 1: LLM judgment ---
-    signal_1_result = get_llm_score(text)
-    llm_score = signal_1_result["llm_score"]
-
-    # --- Signal 2: Stylometric heuristics ---
-    signal_2_result = get_stylometric_score(text)
-    stylo_score = signal_2_result["stylo_score"]
-
-    # --- Signal 3: Structural/formatting patterns (Stretch: Ensemble Detection) ---
-    signal_3_result = get_structural_score(text)
-    structural_score = signal_3_result["structural_score"]
-
-    # --- Confidence scoring: 3-signal weighted-voting ensemble (planning.md Stretch 1) ---
-    scoring_result = combine_ensemble_scores(llm_score, stylo_score, structural_score)
-    combined_score = scoring_result["combined_score"]
-    attribution_result = determine_attribution_result(combined_score)
-
-    # --- Transparency label (planning.md Milestone 2 §3) ---
-    label_result = generate_label(combined_score)
-
-    # --- Provenance certificate check (Stretch 2) ---
     creator_verified = get_certificate(creator_id) is not None
 
-    # --- Audit log entry ---
-    log_entry({
+    log_data = {
         "event_type": "submission",
         "content_id": content_id,
         "creator_id": creator_id,
         "timestamp": timestamp,
-        "text": text,  # stored in full — see audit_log.py docstring / planning.md
-        "attribution_result": attribution_result,
-        "signal_1_score": llm_score,
-        "signal_1_reasoning": signal_1_result["reasoning"],
-        "signal_1_error": signal_1_result["error"],
-        "signal_2_score": stylo_score,
-        "signal_2_metrics": signal_2_result["metrics"],
-        "signal_2_reliable": signal_2_result["reliable"],
-        "signal_3_score": structural_score,
-        "signal_3_metrics": signal_3_result["metrics"],
-        "signal_3_reliable": signal_3_result["reliable"],
-        "ensemble_weighted_score": scoring_result["weighted_score"],
-        "ensemble_variance": scoring_result["variance"],
-        "signals_agree": scoring_result["signals_agree"],
-        "confidence_score": combined_score,
-        "label_text": label_result["label_text"],
+        "text": text,
+        "content_type": content_type,
         "creator_verified": creator_verified,
         "status": "classified",
-    })
-
+    }
     response = {
         "content_id": content_id,
-        "attribution_result": attribution_result,
-        "confidence_score": combined_score,
-        "label_text": label_result["label_text"],
-        "signals": {
-            "llm_score": llm_score,
-            "stylometric_score": stylo_score,
-            "structural_score": structural_score,
-        },
+        "content_type": content_type,
         "creator_verified": creator_verified,
         "timestamp": timestamp,
     }
+
+    if content_type == "metadata":
+        # --- Stretch 4: Multi-modal Support (planning.md Stretch 4) ---
+        metadata_result = analyze_metadata_structure(text)
+        if not metadata_result["valid_json"]:
+            return jsonify({"error": metadata_result["error"]}), 400
+
+        structure_score = metadata_result["structure_score"]
+        extracted_text = metadata_result["extracted_text"]
+        has_text_component = len(extracted_text.split()) >= 5
+
+        if has_text_component:
+            signal_1_result = get_llm_score(extracted_text)
+            signal_2_result = get_stylometric_score(extracted_text)
+            signal_3_result = get_structural_score(extracted_text)
+            text_ensemble = combine_ensemble_scores(
+                signal_1_result["llm_score"], signal_2_result["stylo_score"], signal_3_result["structural_score"]
+            )
+            combined_score = 0.65 * text_ensemble["combined_score"] + 0.35 * structure_score
+            log_data.update({
+                "signal_1_score": signal_1_result["llm_score"],
+                "signal_2_score": signal_2_result["stylo_score"],
+                "signal_3_score": signal_3_result["structural_score"],
+                "text_ensemble_score": text_ensemble["combined_score"],
+            })
+            response["signals"] = {
+                "llm_score": signal_1_result["llm_score"],
+                "stylometric_score": signal_2_result["stylo_score"],
+                "structural_score": signal_3_result["structural_score"],
+            }
+        else:
+            combined_score = structure_score
+
+        attribution_result = determine_attribution_result(combined_score)
+        label_result = generate_label(combined_score)
+
+        log_data.update({
+            "attribution_result": attribution_result,
+            "confidence_score": combined_score,
+            "label_text": label_result["label_text"],
+            "structure_score": structure_score,
+            "structure_metrics": metadata_result["metrics"],
+            "uniformity_reliable": metadata_result.get("uniformity_reliable"),
+            "has_text_component": has_text_component,
+        })
+        response.update({
+            "attribution_result": attribution_result,
+            "confidence_score": combined_score,
+            "label_text": label_result["label_text"],
+            "structure_metrics": metadata_result["metrics"],
+        })
+
+    else:
+        # --- Prose pipeline (Milestones 3-5 + Stretch 1 ensemble) ---
+        signal_1_result = get_llm_score(text)
+        llm_score = signal_1_result["llm_score"]
+
+        signal_2_result = get_stylometric_score(text)
+        stylo_score = signal_2_result["stylo_score"]
+
+        signal_3_result = get_structural_score(text)
+        structural_score = signal_3_result["structural_score"]
+
+        scoring_result = combine_ensemble_scores(llm_score, stylo_score, structural_score)
+        combined_score = scoring_result["combined_score"]
+        attribution_result = determine_attribution_result(combined_score)
+        label_result = generate_label(combined_score)
+
+        log_data.update({
+            "attribution_result": attribution_result,
+            "signal_1_score": llm_score,
+            "signal_1_reasoning": signal_1_result["reasoning"],
+            "signal_1_error": signal_1_result["error"],
+            "signal_2_score": stylo_score,
+            "signal_2_metrics": signal_2_result["metrics"],
+            "signal_2_reliable": signal_2_result["reliable"],
+            "signal_3_score": structural_score,
+            "signal_3_metrics": signal_3_result["metrics"],
+            "signal_3_reliable": signal_3_result["reliable"],
+            "ensemble_weighted_score": scoring_result["weighted_score"],
+            "ensemble_variance": scoring_result["variance"],
+            "signals_agree": scoring_result["signals_agree"],
+            "confidence_score": combined_score,
+            "label_text": label_result["label_text"],
+        })
+        response.update({
+            "attribution_result": attribution_result,
+            "confidence_score": combined_score,
+            "label_text": label_result["label_text"],
+            "signals": {
+                "llm_score": llm_score,
+                "stylometric_score": stylo_score,
+                "structural_score": structural_score,
+            },
+        })
+
+    log_entry(log_data)
+
     if creator_verified:
         response["verified_badge_text"] = BADGE_TEXT
 
@@ -236,6 +296,36 @@ def view_log():
     content_id = request.args.get("content_id")
     limit = request.args.get("limit", type=int)
     return jsonify({"entries": get_log(content_id=content_id, limit=limit)})
+
+
+@app.route("/analytics", methods=["GET"])
+def analytics():
+    return jsonify(compute_analytics())
+
+
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    data = compute_analytics()
+    dp = data["detection_patterns"]
+    sa = data["signal_agreement"]
+    return render_template_string(
+        DASHBOARD_HTML,
+        generated_at=data["generated_at"],
+        total_submissions=data["total_submissions"],
+        pct_ai=dp["percentages"]["ai"],
+        pct_human=dp["percentages"]["human"],
+        pct_uncertain=dp["percentages"]["uncertain"],
+        count_ai=dp["counts"]["ai"],
+        count_human=dp["counts"]["human"],
+        count_uncertain=dp["counts"]["uncertain"],
+        appeal_rate_pct=data["appeal_stats"]["appeal_rate_pct"],
+        total_appeals=data["appeal_stats"]["total_appeals"],
+        agreement_rate_pct=sa["agreement_rate_pct"],
+        disagreement_rate_pct=round(100 - sa["agreement_rate_pct"], 1) if (sa["agree_count"] + sa["disagree_count"]) else 0.0,
+        agree_count=sa["agree_count"],
+        disagree_count=sa["disagree_count"],
+        excluded_no_field_count=sa["excluded_no_field_count"],
+    )
 
 
 @app.route("/health", methods=["GET"])
