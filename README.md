@@ -286,7 +286,6 @@ once the limit is exceeded, confirming Flask-Limiter is active and
 enforcing the configured threshold.
 
 - NB: Flask-limiter has a 60 second sliding-window. Since two requests were made within that window, only 11 requests was returned as a result. Above output is correct.
-
 ---
 
 ## Audit Log
@@ -500,3 +499,65 @@ full breakdown (`signal_3_score`, `signal_3_metrics`,
 
 This design decision is documented in `planning.md` under Stretch 1,
 written before implementation began, per project requirements.
+
+### Stretch 2: Provenance Certificate ✅
+
+**What was built:** a "verified human" credential a creator can earn by
+submitting 3+ past writing samples via `POST /verify`. Verification
+method: writing sample analysis — **not** real identity verification,
+documented honestly as a simple, explainable proxy.
+
+**How it works** (`certification.py`):
+1. Each submitted sample runs through the full 3-signal ensemble pipeline
+   (same as `/submit`).
+2. **Average check:** the mean combined score across all samples must be
+   ≤ 0.45 (samples collectively read as human-leaning).
+3. **Consistency check:** the population variance of the Signal 2
+   (stylometric) score across samples must be ≤ 0.03 — a proxy for a
+   single, consistent personal writing voice across different pieces.
+4. Both checks must pass to issue a certificate (`certificate_id`,
+   `creator_id`, `issued_at`, `sample_count`, `avg_confidence_score`,
+   `consistency_variance`), persisted in `certificates.json`.
+
+**Endpoints:**
+```
+POST /verify
+  body: { "creator_id": string, "samples": [string, ...] }  # 3+ required
+  returns: { "verified": bool, "certificate"?: {...}, "evaluation": {...}, "reason"?: string }
+
+GET /certificate/<creator_id>
+  returns: the certificate record, or 404 if not verified
+```
+
+**How it's displayed on content:** rather than altering the 3 core
+transparency label variants (which stay verbatim per the project's
+format requirement), the badge is a separate additive field returned by
+`POST /submit` once a creator is verified:
+
+- `"creator_verified": true`
+- `"verified_badge_text": "✓ Verified Human Creator — this creator has completed Provenance Guard's writing-sample verification process."`
+
+Unverified creators simply get `"creator_verified": false` with no badge
+field. Verification status is also written to every subsequent
+submission's audit log entry.
+
+**Verified** (internal wiring test, real evaluation data):
+
+```json
+{
+  "verified": true,
+  "certificate": {
+    "certificate_id": "dcf60130-c9ea-45d1-92b2-c8469eab742a",
+    "creator_id": "writer_jane",
+    "sample_count": 3,
+    "avg_confidence_score": 0.270,
+    "consistency_variance": 0.0016
+  }
+}
+```
+
+A subsequent `/submit` call from `writer_jane` correctly returned
+`"creator_verified": true` and the exact badge text above; a call from an
+unverified creator returned `"creator_verified": false` with no badge
+field present. A verification attempt with only 1 sample was correctly
+rejected: `"reason": "At least 3 writing samples are required (received 1)."`
