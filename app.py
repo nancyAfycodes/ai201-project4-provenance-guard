@@ -19,6 +19,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from audit_log import find_latest_decision, get_log, log_entry, update_submission_status
+from certification import get_certificate, issue_certificate, BADGE_TEXT
 from confidence_scoring import determine_attribution_result
 from ensemble_scoring import combine_ensemble_scores
 from label_generator import generate_label
@@ -86,6 +87,9 @@ def submit():
     # --- Transparency label (planning.md Milestone 2 §3) ---
     label_result = generate_label(combined_score)
 
+    # --- Provenance certificate check (Stretch 2) ---
+    creator_verified = get_certificate(creator_id) is not None
+
     # --- Audit log entry ---
     log_entry({
         "event_type": "submission",
@@ -108,10 +112,11 @@ def submit():
         "signals_agree": scoring_result["signals_agree"],
         "confidence_score": combined_score,
         "label_text": label_result["label_text"],
+        "creator_verified": creator_verified,
         "status": "classified",
     })
 
-    return jsonify({
+    response = {
         "content_id": content_id,
         "attribution_result": attribution_result,
         "confidence_score": combined_score,
@@ -121,8 +126,55 @@ def submit():
             "stylometric_score": stylo_score,
             "structural_score": structural_score,
         },
+        "creator_verified": creator_verified,
         "timestamp": timestamp,
-    }), 201
+    }
+    if creator_verified:
+        response["verified_badge_text"] = BADGE_TEXT
+
+    return jsonify(response), 201
+
+
+@app.route("/verify", methods=["POST"])
+def verify():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Request body must be JSON."}), 400
+
+    creator_id = data.get("creator_id")
+    samples = data.get("samples")
+
+    if not creator_id or not isinstance(creator_id, str):
+        return jsonify({"error": "'creator_id' field is required and must be a string."}), 400
+
+    if not samples or not isinstance(samples, list) or not all(isinstance(s, str) and s.strip() for s in samples):
+        return jsonify({"error": "'samples' field is required and must be a non-empty list of non-empty strings."}), 400
+
+    result = issue_certificate(creator_id, samples)
+
+    if result["verified"]:
+        log_entry({
+            "event_type": "certificate_issued",
+            "content_id": None,
+            "creator_id": creator_id,
+            "timestamp": result["certificate"]["issued_at"],
+            "certificate_id": result["certificate"]["certificate_id"],
+            "sample_count": result["certificate"]["sample_count"],
+            "avg_confidence_score": result["certificate"]["avg_confidence_score"],
+            "consistency_variance": result["certificate"]["consistency_variance"],
+            "status": "verified",
+        })
+        return jsonify(result), 201
+
+    return jsonify(result), 200
+
+
+@app.route("/certificate/<creator_id>", methods=["GET"])
+def view_certificate(creator_id):
+    cert = get_certificate(creator_id)
+    if not cert:
+        return jsonify({"error": f"No certificate found for creator_id '{creator_id}'."}), 404
+    return jsonify(cert)
 
 
 @app.route("/appeal", methods=["POST"])
