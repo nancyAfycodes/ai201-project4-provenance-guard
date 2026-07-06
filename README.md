@@ -285,6 +285,8 @@ classification decision — is created); rejections correctly return `429`
 once the limit is exceeded, confirming Flask-Limiter is active and
 enforcing the configured threshold.
 
+- NB: Flask-limiter has a 60 second sliding-window. Since two requests were made within that window, only 11 requests was returned as a result. Above output is correct.
+
 ---
 
 ## Audit Log
