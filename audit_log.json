@@ -311,5 +311,71 @@
     "label_text": "We're not confident in this content's origin. Our signals give mixed results, leaning slightly toward human-written (confidence: 0.30). Treat this result with caution.",
     "creator_verified": false,
     "status": "classified"
+  },
+  {
+    "event_type": "submission",
+    "content_id": "63c3dd83-72ea-4747-87db-2555e08ef479",
+    "creator_id": "user123",
+    "timestamp": "2026-07-06T14:59:58.276866+00:00",
+    "text": "I'd pick you up from school in 15 mins!ttyl",
+    "content_type": "prose",
+    "creator_verified": false,
+    "status": "classified",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.2,
+    "signal_1_reasoning": "The text contains informal language and abbreviations commonly used by humans in personal messages.",
+    "signal_1_error": null,
+    "signal_2_score": 0.4125,
+    "signal_2_metrics": {
+      "sentence_length_stdev": 0.0,
+      "type_token_ratio": 1.0,
+      "hedge_phrase_density": 0.0
+    },
+    "signal_2_reliable": false,
+    "signal_3_score": 0.39999999999999997,
+    "signal_3_metrics": {
+      "dash_density": 0.0,
+      "paragraph_length_stdev": null,
+      "connector_density": 0.0
+    },
+    "signal_3_reliable": false,
+    "ensemble_weighted_score": 0.30374999999999996,
+    "ensemble_variance": 0.009479166666666664,
+    "signals_agree": true,
+    "confidence_score": 0.30374999999999996,
+    "label_text": "We're not confident in this content's origin. Our signals give mixed results, leaning slightly toward human-written (confidence: 0.30). Treat this result with caution."
+  },
+  {
+    "event_type": "submission",
+    "content_id": "3a7de1e1-e258-45d8-9162-9277e1e61420",
+    "creator_id": "user123",
+    "timestamp": "2026-07-06T15:04:16.679893+00:00",
+    "text": "I'll be adding today's meeting at 1pm.",
+    "content_type": "prose",
+    "creator_verified": false,
+    "status": "classified",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.8,
+    "signal_1_reasoning": "The text is brief and lacks personal touch or emotional tone.",
+    "signal_1_error": null,
+    "signal_2_score": 0.4125,
+    "signal_2_metrics": {
+      "sentence_length_stdev": 0.0,
+      "type_token_ratio": 1.0,
+      "hedge_phrase_density": 0.0
+    },
+    "signal_2_reliable": false,
+    "signal_3_score": 0.39999999999999997,
+    "signal_3_metrics": {
+      "dash_density": 0.0,
+      "paragraph_length_stdev": null,
+      "connector_density": 0.0
+    },
+    "signal_3_reliable": false,
+    "ensemble_weighted_score": 0.60375,
+    "ensemble_variance": 0.03447916666666668,
+    "signals_agree": false,
+    "confidence_score": 0.5894411458333333,
+    "label_text": "We're not confident in this content's origin. Our signals give mixed results, leaning slightly toward AI-generated (confidence: 0.59). Treat this result with caution."
   }
 ]
