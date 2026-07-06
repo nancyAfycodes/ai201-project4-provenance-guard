@@ -184,5 +184,36 @@
     "status": "under_review",
     "original_attribution_result": "uncertain",
     "original_confidence_score": 0.50625
+  },
+  {
+    "event_type": "submission",
+    "content_id": "dc48b60e-89c7-4fd9-9b98-a05be441ac85",
+    "creator_id": "user_test",
+    "timestamp": "2026-07-06T13:05:48.399066+00:00",
+    "text": "Today's weather is crazy. There goes my beach plans. Oh well!",
+    "attribution_result": "uncertain",
+    "signal_1_score": 0.3,
+    "signal_1_reasoning": "The text's brevity and casual tone are more typical of human social media posts.",
+    "signal_1_error": null,
+    "signal_2_score": 0.4125,
+    "signal_2_metrics": {
+      "sentence_length_stdev": 1.528,
+      "type_token_ratio": 1.0,
+      "hedge_phrase_density": 0.0
+    },
+    "signal_2_reliable": false,
+    "signal_3_score": 0.39999999999999997,
+    "signal_3_metrics": {
+      "dash_density": 0.0,
+      "paragraph_length_stdev": null,
+      "connector_density": 0.0
+    },
+    "signal_3_reliable": false,
+    "ensemble_weighted_score": 0.35375,
+    "ensemble_variance": 0.0025347222222222216,
+    "signals_agree": true,
+    "confidence_score": 0.35375,
+    "label_text": "We're not confident in this content's origin. Our signals give mixed results, leaning slightly toward human-written (confidence: 0.35). Treat this result with caution.",
+    "status": "classified"
   }
 ]
