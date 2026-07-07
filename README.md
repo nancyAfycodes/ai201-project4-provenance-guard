@@ -884,3 +884,9 @@ description, returning a combined score, full signal breakdown, and
 or `"prose"`) continue to work completely unaffected — confirmed via
 direct testing. Invalid JSON and invalid `content_type` values are both
 correctly rejected with `400` and a clear error message.
+---
+## Video Demo & Dashboard Powerpoint
+Demo Link (https://youtu.be/FaNlfESxKg8)
+Dashboard (dashboard ppt.pptx)
+
+---
