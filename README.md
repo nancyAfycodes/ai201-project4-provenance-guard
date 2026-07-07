@@ -886,7 +886,7 @@ direct testing. Invalid JSON and invalid `content_type` values are both
 correctly rejected with `400` and a clear error message.
 ---
 ## Video Demo & Dashboard Powerpoint
-Demo Link (https://youtu.be/FaNlfESxKg8)
-Dashboard (dashboard ppt.pptx)
+![Demo Link] (https://youtu.be/FaNlfESxKg8)
+![Dashboard image] (dashboard ppt.pptx)
 
 ---
